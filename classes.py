@@ -12,6 +12,12 @@ class Letu:
         await page.close()
         return js
 
+    async def go_to_link(self, link):
+        page = await self.context.new_page()
+        await page.goto(link)
+        await asyncio.sleep(5)
+        await page.close()
+
 
     async def links_for_item(self, name:str, prefix):
         try:
