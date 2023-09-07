@@ -5,7 +5,10 @@ async def main():
     async with async_playwright() as p:
         browser = await p.firefox.launch(headless=True)
         context = await browser.new_context()
-
+        page = await context.new_page()
+        await page.goto('https://letu.ru')
+        await asyncio.sleep(6)
+        page.close()
         parser = Letu(context)
 
         js = await parser.get_json('https://www.letu.ru/s/api/product/v2/product-detail/139100401?pushSite=storeMobileRU')
