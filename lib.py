@@ -1,4 +1,4 @@
-
+from urllib.parse import quote
 from fake_useragent import UserAgent
 from playwright.async_api import async_playwright, BrowserContext
 

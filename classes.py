@@ -5,10 +5,28 @@ class Letu:
 
     def __init__(self, context:BrowserContext):
         self.context = context
+        self.errors = []
+
+
+    def unpack (self, item:dict):
+        url = item['URL']
+        prefix = item['PREFIX']
+        article = item['ARTICLE']
+        marker = item['MARKER']
+        return article, url, prefix, marker
+
+    def image(self, imgs:list, images:list):
+        for img in imgs:
+            if img['type'] != 'shade':
+                images.append(
+                    'https://letu.ru' + img['url']
+                )
+
 
     async def get_json(self, link):
         page = await self.context.new_page()
         response = await page.goto(link)
+        await asyncio.sleep(5)
         js = await response.json()
         await page.close()
         return js
@@ -25,25 +43,35 @@ class Letu:
         else:
             return True
 
+
+
+
     async def search(self, query:str, prefix:str):
         try:
             link = f'https://www.letu.ru/s/api/product/listing/v1/products?N=0&Nrpp=36&No=0&Ntt={query}&innerPath=mainContent%5B2%5D&resultListPath=%2Fcontent%2FWeb%2FSearch%2FSearch%20RU&pushSite=storeMobileRU'
-            data = await self.get_json(link)
+            try:
+                data = await self.get_json(link)
+            except TimeoutError:
+                print ('ssss')
+                return await self.search(query, prefix)
             count = int(data['totalNumRecs'])
             products = data['products']
             items_list = []
-            func = lambda item, prefix: {
+            func = lambda item, prefix, marker: {
                 items_list.append(
                     {
                         'URL' : f'https://www.letu.ru/s/api/product/v2/product-detail/{item["repositoryId"]}?pushSite=storeMobileRU',
                         'ARTICLE' : item['article'],
-                        'PREFIX' : prefix
+                        'PREFIX' : prefix,
+                        'MARKER' : marker
                     }
                 )
             }
             for prod in products:
                 if self.IsAvailable(prod):
-                    func(prod, prefix)
+                    markers = [item['ui_name'] for item in prod['appliedMarkers']]
+                    func(prod, prefix, ' '.join(markers))
+                    
                 else:
                     continue
             for i in range (36, count + 1, 36):
@@ -52,12 +80,13 @@ class Letu:
                 products = data['products']
                 for prod in products:
                     if self.IsAvailable(prod):
-                        func(prod, prefix)
+                        markers = [item['ui_name'] for item in prod['appliedMarkers']]
+                        func(prod, prefix, ' '.join(markers))
                     else:
                         continue
             return items_list
         except Exception as e:
-            print (e)
+            print (str(e))
             return await self.search(query, prefix)
 
     async def promo(self, promoid:str, query:str, prefix:str):
@@ -93,23 +122,34 @@ class Letu:
                         continue
             return items_list
         except Exception as e:
-            print (e)
+            print (str(e))
+            
             return await self.promo(promoid=promoid, query=query, prefix=prefix)
 
 
-    async def get_main_info(self, link:str, article:str, prefix:str):
+    async def get_main_info(self, link:str, article:str, prefix:str, marker:str):
         try:
+            error = {
+                'url' : link,
+                'article' : article,
+                'prefix' : prefix,
+                'marker' : marker
+            }
             data = await self.get_json(link)
             name = data['displayName']
             brand = data['brand']['name']
             id = data['productId']
             for_link = data['sefPath'].split('/')
             url = 'https://www.letu.ru/product' + for_link[-1] + '/' + id
-            images = []
-            for img in data['media']:
-                images.append('https://letu.ru' + img['url'])
             skuList = data['skuList']
-            info = skuList[0]
+            images = []
+            self.image(data['media'], images)
+            for el in skuList:
+                if article == el['article']:
+                    info = skuList.pop(skuList.index(el))
+                else:
+                    print ('error')
+                self.image(el['media'], images)
             weight = info['displayName']
             price = float(info['price']['amount'])
             sale_size = int(info['price']['discountPercent'])
@@ -137,6 +177,7 @@ class Letu:
                         'Параметр: Производитель' : brand,
                         "Параметр: Размер скидки" : 'Скидки нет',
                         'Параметр: Период скидки' : None,
+                        'Параметр: Метки' : marker
                     }
                 case _:
                     result = { 
@@ -157,6 +198,7 @@ class Letu:
                         'Параметр: Производитель' : brand,
                         "Параметр: Размер скидки" : str(sale_size) + '%',
                         'Параметр: Период скидки' : None,
+                        'Параметр: Метки' : marker
                     }
             for item in data['topSpecs']:
                 result[f'Параметр: {item["name"]}'] = item['value']
@@ -164,8 +206,8 @@ class Letu:
             result['Изображения'] = ' '.join(images)
             result['Ссылка на товар'] = url
             tmp = []
-            if len(skuList) > 1:
-                for item in skuList[1:]:
+            if len(skuList):
+                for item in skuList:
                     article = item['article']
                     display_name = item['displayName']
                     available = item['isInStock']
@@ -192,4 +234,7 @@ class Letu:
             
             return [result, *tmp]
         except Exception as e:
-            print (e)
+            print (str(e))
+            self.errors.append(
+                error
+            )
